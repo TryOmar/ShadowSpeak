@@ -601,12 +601,12 @@ class ShadowReader {
             const targetWord = words[currentWordIndex];
             targetWord.classList.add('highlight');
             
-            // Smooth scroll into view without disrupting user experience
-            targetWord.scrollIntoView({
-                behavior: 'smooth',
-                block: 'nearest',
-                inline: 'center'
-            });
+            // Auto focus disabled - no longer scrolls to current word
+            // targetWord.scrollIntoView({
+            //     behavior: 'smooth',
+            //     block: 'nearest',
+            //     inline: 'center'
+            // });
         }
     }
 
