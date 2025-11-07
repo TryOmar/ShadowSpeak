@@ -26,6 +26,14 @@ function togglePlayAll() {
     shadowReader.togglePlayAll();
 }
 
+function toggleMicrophone(isEnabled) {
+    shadowReader.setMicrophoneEnabled(isEnabled);
+}
+
+function togglePlayUserRecordings() {
+    shadowReader.togglePlayUserRecordings();
+}
+
 /**
  * Stop all playback and reset state
  */

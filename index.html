@@ -80,9 +80,21 @@
                 <div class="current-status" id="currentStatus">Ready</div>
                 <div class="control-buttons">
                     <button class="control-btn" id="playAllBtn" onclick="togglePlayAll()" title="Play All">▶</button>
+                    <button class="control-btn" id="playRecordingsBtn" onclick="togglePlayUserRecordings()" title="Play My Voice">၊၊||၊</button>
                     <button class="control-btn" onclick="stopAll()" title="Stop">⏹</button>
                     <button class="control-btn" onclick="previousSentence()" title="Previous">⏮</button>
                     <button class="control-btn" onclick="nextSentence()" title="Next">⏭</button>
+                </div>
+            </div>
+
+            <div class="control-row toggle-row">
+                <div class="control-box toggle-box">
+                    <label class="toggle-wrapper">
+                        <input type="checkbox" id="micToggle" onchange="toggleMicrophone(this.checked)">
+                        <span class="toggle-slider" aria-hidden="true"></span>
+                        <span class="toggle-text">Enable Microphone</span>
+                    </label>
+                    <p class="toggle-description">Automatically record your voice after each sentence</p>
                 </div>
             </div>
         </div>

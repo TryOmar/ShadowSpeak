@@ -372,12 +372,98 @@ body {
     grid-column: 1 / -1;
 }
 
+.toggle-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-md) !important;
+}
+
+.control-row.toggle-row {
+    margin-top: var(--space-md);
+}
+
+.toggle-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    font-weight: 600;
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.toggle-wrapper input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    width: 48px;
+    height: 26px;
+    background: var(--border-color);
+    border-radius: 999px;
+    position: relative;
+    transition: background var(--transition-fast);
+    flex-shrink: 0;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.1);
+    order: 2;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    background: #ffffff;
+    border-radius: 50%;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+}
+
+.toggle-wrapper input:checked + .toggle-slider {
+    background: var(--accent-color);
+}
+
+.toggle-wrapper input:checked + .toggle-slider::before {
+    transform: translateX(22px);
+}
+
+.toggle-wrapper input:focus-visible + .toggle-slider {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.toggle-text {
+    font-size: 0.95rem;
+    order: 1;
+}
+
+.toggle-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+    margin-top: var(--space-xs);
+}
+
 .control-box label {
     font-size: 0.875rem;
     font-weight: 600;
     display: block;
     margin-bottom: var(--space-sm);
     color: var(--text-primary);
+}
+
+.control-box label.toggle-wrapper {
+    display: flex;
+    margin-bottom: 0;
 }
 
 /* Form Elements */
@@ -609,9 +695,42 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: inset 4px 0 0 var(--success-color);
 }
 
+.sentence-card.recording {
+    background: linear-gradient(135deg, var(--accent-color), var(--accent-hover));
+    color: white;
+    box-shadow: inset 4px 0 0 var(--danger-color);
+}
+
+.sentence-card.recording .sentence-text,
+.sentence-card.recording .sentence-actions {
+    color: white;
+}
+
+.sentence-card.recording .sentence-mic {
+    color: white;
+}
+
+
+.recorded-audio {
+    display: none !important;
+    position: absolute;
+    visibility: hidden;
+}
+
+@keyframes pulse-record {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.4;
+        transform: scale(0.8);
+    }
+}
+
 .sentence-content {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     min-height: 60px;
 }
 
@@ -620,11 +739,12 @@ input[type="range"]::-moz-range-thumb {
     color: var(--text-primary);
     font-size: 0.875rem;
     font-weight: 700;
-    min-width: 60px;
+    min-width: 70px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-right: 1px solid var(--border-color);
+    padding: 0 var(--space-md);
 }
 
 .sentence-card.playing .sentence-id {
@@ -633,11 +753,126 @@ input[type="range"]::-moz-range-thumb {
     border-right-color: rgba(255, 255, 255, 0.3);
 }
 
+.sentence-number {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.sentence-card.playing .sentence-number {
+    background: rgba(255, 255, 255, 0.25);
+    color: white;
+}
+
+.sentence-mic {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    line-height: 1;
+    transition: color var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.sentence-mic.unrecorded {
+    color: var(--text-muted);
+}
+
+.sentence-mic.recorded {
+    color: var(--success-color);
+}
+
+.sentence-mic.recording {
+    color: var(--danger-color);
+    animation: pulse-record 1s ease-in-out infinite;
+    font-size: 1.5rem;
+}
+
+.sentence-card.recording .sentence-mic.recording {
+    color: var(--danger-color);
+}
+
+.sentence-mic:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.sentence-mic:not(:disabled):hover {
+    transform: scale(1.08);
+}
+
+.sentence-mic:not(:disabled):active {
+    transform: scale(0.95);
+}
+
+.recording-duration-box {
+    border: 1px solid var(--border-color);
+    background: var(--accent-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    transition: all var(--transition-fast);
+    margin-right: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    min-width: 45px;
+    user-select: none;
+}
+
+.recording-duration-box:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.recording-duration-box:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.sentence-card.playing .recording-duration-box,
+.sentence-card.recording .recording-duration-box {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.sentence-card.playing .recording-duration-box:hover,
+.sentence-card.recording .recording-duration-box:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
 .sentence-text {
     font-size: 1rem;
     line-height: 1.6;
-    flex: 1;
+    flex: 1 1 auto;
     padding: var(--space-lg);
+    display: flex;
+    align-items: center;
+}
+
+.sentence-actions {
+    margin-left: auto;
+    padding: 0 var(--space-lg);
     display: flex;
     align-items: center;
 }
