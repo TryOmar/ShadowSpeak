@@ -419,7 +419,7 @@ class ShadowReader {
 
 
     splitIntoSentences(text) {
-        const sentences = text.match(/[^.!؟?;]+[.!؟?;]*/g) || [text];
+        const sentences = text.match(/[^.!؟?;…]+[.!؟?;…]*/g) || [text];
         return sentences.map(s => s.trim()).filter(s => s.length > 0);
     }
 
