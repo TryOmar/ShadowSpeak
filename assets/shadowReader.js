@@ -44,13 +44,15 @@ class ShadowReader {
         this.audioMonitorData = null;
         this.lastVoiceActivity = null;
         this.recordingStartTimestamp = null;
+        this.speechStartTimestamp = null; // Track when user actually starts speaking
         this.silenceThreshold = 0.04;
-        this.silenceDuration = 1200;
-        this.minRecordingDuration = 800;
+        this.silenceDuration = 500;
+        this.minRecordingDuration = 400;
         this.rmsThreshold = 0.01;
-        this.silenceDurationMs = 1200;
-        this.minRecordingDurationMs = 700;
+        this.silenceDurationMs = 500; // Reduced from 1200ms to 500ms for faster sentence recording
+        this.minRecordingDurationMs = 400; // Reduced from 700ms to 400ms for quicker stop
         this.silenceStartTime = null;
+        this.hasDetectedSpeech = false; // Track if speech has been detected
         
         this.init();
         this.updatePlayRecordingsButton();
@@ -688,11 +690,12 @@ class ShadowReader {
                 this.updateRecordingUI(index, { state: this.recordings[index] ? 'saved' : 'idle' });
                 const shouldAutoContinue = this.playAllMode && index < this.sentences.length - 1;
                 if (shouldAutoContinue) {
-                    setTimeout(() => {
+                    // Immediately proceed to next sentence without delay
+                    requestAnimationFrame(() => {
                         if (this.playAllMode) {
                             this.playNextSentence();
                         }
-                    }, 400);
+                    });
                 } else if (this.playAllMode) {
                     this.playAllMode = false;
                     this.updatePlayAllButton();
@@ -721,12 +724,14 @@ class ShadowReader {
 
     handleSentencePlaybackComplete(index, container, shouldAutoContinue) {
         const finishPlayback = () => {
+            // Immediately proceed to next sentence without delay
             if (shouldAutoContinue && this.playAllMode) {
-                setTimeout(() => {
+                // Use requestAnimationFrame for immediate execution
+                requestAnimationFrame(() => {
                     if (this.playAllMode) {
                         this.playNextSentence();
                     }
-                }, 400);
+                });
             } else if (this.playAllMode) {
                 this.playAllMode = false;
                 this.updatePlayAllButton();
@@ -745,7 +750,8 @@ class ShadowReader {
         }
 
         const onRecordingComplete = () => {
-            this.updateRecordingUI(index, { state: this.recordings[index] ? 'saved' : 'idle' });
+            // Recording stopped - immediately proceed to next sentence
+            // UI already updated when recording stopped
             finishPlayback();
         };
 
@@ -916,15 +922,22 @@ class ShadowReader {
 
             this.mediaRecorder.start();
             this.recordingStartTimestamp = performance.now();
-            this.lastVoiceActivity = this.recordingStartTimestamp;
+            this.speechStartTimestamp = null; // Reset speech start time
+            this.hasDetectedSpeech = false; // Reset speech detection flag
+            this.lastVoiceActivity = null;
             this.startSilenceDetection(stream);
 
-            this.updateStatus(`Recording your voice for sentence ${index + 1}`);
+            this.updateStatus(`Waiting for you to start speaking... (sentence ${index + 1})`);
             if (this.recordingTimeout) {
                 clearTimeout(this.recordingTimeout);
             }
             this.recordingTimeout = setTimeout(() => {
                 if (this.isRecording && this.recordingSentenceIndex === index) {
+                    if (!this.hasDetectedSpeech) {
+                        // No speech detected - cancel recording
+                        this.shouldSaveRecording = false;
+                        this.updateStatus(`No speech detected. Recording cancelled for sentence ${index + 1}`);
+                    }
                     this.stopRecording();
                 }
             }, this.maxRecordingDuration);
@@ -986,52 +999,225 @@ class ShadowReader {
         this.recordingCompletionCallback = null;
 
         const mimeType = this.mediaRecorder && this.mediaRecorder.mimeType ? this.mediaRecorder.mimeType : 'audio/webm';
+        const speechStartTime = this.speechStartTimestamp;
+        const recordingStartTime = this.recordingStartTimestamp;
+        const hasDetectedSpeech = this.hasDetectedSpeech; // Capture before resetting
+        const recordedChunks = [...this.recordedChunks]; // Copy chunks for async processing
+        
+        // Immediately update UI to stop showing recording state
         this.mediaRecorder = null;
         this.isRecording = false;
         this.recordingStartTimestamp = null;
+        this.speechStartTimestamp = null;
+        this.hasDetectedSpeech = false;
         this.lastVoiceActivity = null;
+        
+        // Immediately update UI - remove recording state and show as recorded
+        if (hasDetectedSpeech && this.shouldSaveRecording) {
+            // Create a temporary recording entry so UI shows as recorded immediately
+            // The actual trimmed recording will replace this later
+            if (!this.recordings[index]) {
+                // Create a temporary blob from current chunks so UI can show recorded state
+                const tempBlob = new Blob(recordedChunks, { type: mimeType });
+                const tempUrl = URL.createObjectURL(tempBlob);
+                this.recordings[index] = { blob: tempBlob, url: tempUrl, isTemporary: true };
+            }
+            // Show that recording is complete, processing will happen in background
+            this.updateRecordingUI(index, { state: 'saved', message: 'Processing...' });
+            this.updateStatus(`Processing recording for sentence ${index + 1}...`);
+            
+            // Call completion callback immediately so next sentence can proceed
+            // Processing will continue in background
+            if (completionCallback) {
+                completionCallback();
+            }
+        } else {
+            this.updateRecordingUI(index, { state: 'idle' });
+            if (completionCallback) {
+                completionCallback();
+            }
+        }
 
         let saved = false;
 
-        if (this.shouldSaveRecording && this.recordedChunks.length > 0) {
-            const blob = new Blob(this.recordedChunks, { type: mimeType });
-            const url = URL.createObjectURL(blob);
+        // Only save if speech was detected and we should save
+        if (this.shouldSaveRecording && recordedChunks.length > 0 && hasDetectedSpeech) {
+            // Process the recording to trim beginning silence in the background
+            // This happens asynchronously and doesn't block the flow
+            this.trimRecordingSilence(recordedChunks, mimeType, speechStartTime, recordingStartTime, index)
+                .then(({ blob, url }) => {
+                    const existing = this.recordings[index];
+                    // Clean up temporary recording if it exists
+                    if (existing && existing.url && existing.isTemporary) {
+                        URL.revokeObjectURL(existing.url);
+                    } else if (existing && existing.url) {
+                        URL.revokeObjectURL(existing.url);
+                    }
 
-            const existing = this.recordings[index];
-            if (existing && existing.url) {
-                URL.revokeObjectURL(existing.url);
-            }
+                    // Replace with trimmed recording
+                    this.recordings[index] = { blob, url };
+                    saved = true;
+                    // Load duration after recording is saved
+                    const card = document.querySelector(`.sentence-card[data-index="${index}"]`);
+                    const durationBox = card ? card.querySelector('.recording-duration-box') : null;
+                    this.loadRecordingDuration(index, durationBox);
+                    this.updateRecordingUI(index, { state: 'saved', url, message: 'Recorded' });
+                    // Update status silently in background, don't interrupt user
+                    
+                    if (resolver) {
+                        resolver(saved);
+                    }
+                })
+                .catch((error) => {
+                    console.error('Error trimming recording:', error);
+                    // Fallback to saving without trimming
+                    const blob = new Blob(recordedChunks, { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const existing = this.recordings[index];
+                    // Clean up temporary recording if it exists
+                    if (existing && existing.url && existing.isTemporary) {
+                        URL.revokeObjectURL(existing.url);
+                    } else if (existing && existing.url) {
+                        URL.revokeObjectURL(existing.url);
+                    }
 
-            this.recordings[index] = { blob, url };
-            saved = true;
-            // Load duration after recording is saved
-            const card = document.querySelector(`.sentence-card[data-index="${index}"]`);
-            const durationBox = card ? card.querySelector('.recording-duration-box') : null;
-            this.loadRecordingDuration(index, durationBox);
-            this.updateRecordingUI(index, { state: 'saved', url, message: 'Recorded' });
-            this.updateStatus(`Saved recording for sentence ${index + 1}`);
+                    // Replace with untrimmed recording (fallback)
+                    this.recordings[index] = { blob, url };
+                    saved = true;
+                    const card = document.querySelector(`.sentence-card[data-index="${index}"]`);
+                    const durationBox = card ? card.querySelector('.recording-duration-box') : null;
+                    this.loadRecordingDuration(index, durationBox);
+                    this.updateRecordingUI(index, { state: 'saved', url, message: 'Recorded' });
+                    
+                    if (resolver) {
+                        resolver(saved);
+                    }
+                });
         } else {
-            this.updateRecordingUI(index, { state: 'idle' });
+            if (resolver) {
+                resolver(saved);
+            } else if (rejecter) {
+                rejecter(new Error('recording-cancelled'));
+            }
         }
 
         this.recordedChunks = [];
         this.shouldSaveRecording = true;
         this.recordingSentenceIndex = null;
 
-        if (resolver) {
-            resolver(saved);
-        } else if (rejecter) {
-            rejecter(new Error('recording-cancelled'));
+        this.updatePlayRecordingsButton();
+    }
+
+    async trimRecordingSilence(chunks, mimeType, speechStartTime, recordingStartTime, index) {
+        // If no speech was detected or times are invalid, return original recording
+        if (!speechStartTime || !recordingStartTime || speechStartTime <= recordingStartTime) {
+            const blob = new Blob(chunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            return { blob, url };
         }
 
-        this.updatePlayRecordingsButton();
-
-        if (completionCallback) {
-            if (saved) {
-                setTimeout(() => completionCallback(), 400);
-            } else {
-                completionCallback();
+        try {
+            // Calculate how much silence to trim from the beginning (in seconds)
+            const silenceDurationSeconds = (speechStartTime - recordingStartTime) / 1000;
+            
+            // If silence is very short (< 100ms), don't trim to avoid audio issues
+            if (silenceDurationSeconds < 0.1) {
+                const blob = new Blob(chunks, { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                return { blob, url };
             }
+
+            // Create audio blob and decode it
+            const audioBlob = new Blob(chunks, { type: mimeType });
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Calculate samples to trim (silence at the beginning)
+            const sampleRate = audioBuffer.sampleRate;
+            const samplesToTrim = Math.floor(silenceDurationSeconds * sampleRate);
+            
+            // Don't trim if it would remove too much or all of the audio
+            if (samplesToTrim >= audioBuffer.length) {
+                audioContext.close();
+                const blob = new Blob(chunks, { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                return { blob, url };
+            }
+
+            // Create a new audio buffer with trimmed audio
+            const trimmedLength = audioBuffer.length - samplesToTrim;
+            const trimmedBuffer = audioContext.createBuffer(
+                audioBuffer.numberOfChannels,
+                trimmedLength,
+                sampleRate
+            );
+
+            // Copy audio data starting from after the silence
+            for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                const inputData = audioBuffer.getChannelData(channel);
+                const outputData = trimmedBuffer.getChannelData(channel);
+                for (let i = 0; i < trimmedLength; i++) {
+                    outputData[i] = inputData[i + samplesToTrim];
+                }
+            }
+
+            // Re-encode the trimmed audio using MediaRecorder
+            // Create an AudioBufferSourceNode to play the trimmed buffer
+            const source = audioContext.createBufferSource();
+            source.buffer = trimmedBuffer;
+            
+            // Create a MediaStreamDestination to capture the audio
+            const destination = audioContext.createMediaStreamDestination();
+            source.connect(destination);
+            
+            // Create a MediaRecorder to encode the stream
+            const trimmedChunks = [];
+            const recorder = new MediaRecorder(destination.stream, {
+                mimeType: mimeType || 'audio/webm'
+            });
+            
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    trimmedChunks.push(event.data);
+                }
+            };
+            
+            return new Promise((resolve, reject) => {
+                recorder.onstop = () => {
+                    audioContext.close();
+                    const blob = new Blob(trimmedChunks, { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    resolve({ blob, url });
+                };
+                
+                recorder.onerror = (error) => {
+                    audioContext.close();
+                    console.error('Error recording trimmed audio:', error);
+                    // Fallback to original
+                    const blob = new Blob(chunks, { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    resolve({ blob, url });
+                };
+                
+                // Start recording
+                recorder.start();
+                source.start(0);
+                
+                // Stop after the audio has played
+                const duration = trimmedBuffer.duration;
+                setTimeout(() => {
+                    source.stop();
+                    recorder.stop();
+                }, (duration + 0.1) * 1000); // Add small buffer
+            });
+        } catch (error) {
+            console.error('Error processing audio for trimming:', error);
+            // Return original recording if trimming fails
+            const blob = new Blob(chunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            return { blob, url };
         }
     }
 
@@ -1048,8 +1234,12 @@ class ShadowReader {
 
         const { state, message, url } = options;
 
-        // Update card recording state class
-        card.classList.toggle('recording', state === 'recording' || state === 'preparing');
+        // Immediately remove recording class for any non-recording state
+        if (state !== 'recording' && state !== 'preparing') {
+            card.classList.remove('recording');
+        } else {
+            card.classList.add('recording');
+        }
 
         if (state === 'recording') {
             if (micButton) {
@@ -1069,8 +1259,11 @@ class ShadowReader {
                 audio.removeAttribute('src');
             }
         } else if (state === 'saved') {
-            // Remove recording class when saved
-            card.classList.remove('recording');
+            // Remove recording class when saved - update mic button immediately
+            if (micButton) {
+                micButton.classList.remove('recording');
+                // Will be updated by updateMicIconState, but ensure it's not recording
+            }
             if (url) {
                 audio.src = url;
                 audio.load();
@@ -1081,7 +1274,9 @@ class ShadowReader {
                 audio.removeAttribute('src');
             }
         } else if (state === 'error') {
-            card.classList.remove('recording');
+            if (micButton) {
+                micButton.classList.remove('recording');
+            }
             if (this.recordings[index] && this.recordings[index].url) {
                 audio.src = this.recordings[index].url;
                 audio.load();
@@ -1090,7 +1285,9 @@ class ShadowReader {
             }
         } else {
             // Idle state
-            card.classList.remove('recording');
+            if (micButton) {
+                micButton.classList.remove('recording');
+            }
             if (this.recordings[index] && this.recordings[index].url) {
                 audio.src = this.recordings[index].url;
                 audio.load();
@@ -1333,21 +1530,38 @@ class ShadowReader {
                     sum += input[i] * input[i];
                 }
                 const rms = Math.sqrt(sum / input.length);
+                const now = performance.now();
 
+                // Detect if user is speaking (voice activity)
                 if (rms > this.rmsThreshold) {
+                    // User is speaking
+                    if (!this.hasDetectedSpeech) {
+                        // First time detecting speech - mark the start
+                        this.speechStartTimestamp = now;
+                        this.hasDetectedSpeech = true;
+                        this.updateStatus(`Recording your voice for sentence ${this.recordingSentenceIndex + 1}...`);
+                    }
+                    // Reset silence tracking since user is speaking
                     this.silenceStartTime = null;
+                    this.lastVoiceActivity = now;
                     return;
                 }
 
-                const now = performance.now();
+                // Silence detected
+                if (!this.hasDetectedSpeech) {
+                    // Still waiting for user to start speaking - don't stop yet
+                    return;
+                }
+
+                // Speech has been detected, now checking for silence after speech
                 if (!this.silenceStartTime) {
                     this.silenceStartTime = now;
                 }
 
                 const silenceElapsed = now - this.silenceStartTime;
-                const totalElapsed = this.recordingStartTimestamp ? now - this.recordingStartTimestamp : 0;
-
-                if (silenceElapsed >= this.silenceDurationMs && totalElapsed >= this.minRecordingDurationMs) {
+                
+                // Stop quickly when silence is detected after speech (no minimum duration check)
+                if (silenceElapsed >= this.silenceDurationMs) {
                     this.stopRecording();
                 }
             };
