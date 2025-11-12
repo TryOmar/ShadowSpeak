@@ -2015,12 +2015,18 @@ class ShadowReader {
             this.stopCurrentUtterance();
             this.abortRecording(true);
             
-            // If no sentence has been played yet, start from beginning
-            if (this.currentSentenceIndex === -1) {
+            // Check if all sentences have been finished - if so, restart from beginning
+            // We've finished if we're at or past the last sentence index
+            const allSentencesFinished = this.currentSentenceIndex >= this.sentences.length - 1;
+            
+            // If no sentence has been played yet, or all sentences are finished, start from beginning
+            if (this.currentSentenceIndex === -1 || allSentencesFinished) {
+                this.currentSentenceIndex = -1; // Reset to beginning
                 this.updateStatus('Starting playback from beginning');
             } else {
-                // Continue from the last played sentence
-                this.updateStatus(`Continuing from sentence ${this.currentSentenceIndex + 1}`);
+                // Continue from the next sentence after the last played one
+                const nextSentenceNumber = this.currentSentenceIndex + 2; // +1 for next index, +1 for 1-based numbering
+                this.updateStatus(`Continuing from sentence ${nextSentenceNumber}`);
             }
             
             this.playNextSentence();
