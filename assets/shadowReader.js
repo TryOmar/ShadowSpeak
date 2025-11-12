@@ -54,6 +54,7 @@ class ShadowReader {
         this.silenceStartTime = null;
         this.hasDetectedSpeech = false; // Track if speech has been detected
         this.voiceSearchFilter = ''; // Store voice search filter
+        this.speechStartBufferMs = 250; // Buffer to preserve before detected speech start (ms) to prevent cutting off speech beginning
         
         this.init();
         this.updatePlayRecordingsButton();
@@ -1216,10 +1217,17 @@ class ShadowReader {
 
         try {
             // Calculate how much silence to trim from the beginning (in seconds)
-            const silenceDurationSeconds = (speechStartTime - recordingStartTime) / 1000;
+            const totalSilenceDurationSeconds = (speechStartTime - recordingStartTime) / 1000;
             
-            // If silence is very short (< 100ms), don't trim to avoid audio issues
-            if (silenceDurationSeconds < 0.1) {
+            // Convert buffer to seconds
+            const bufferSeconds = this.speechStartBufferMs / 1000;
+            
+            // Calculate how much to actually trim (leave buffer before speech starts)
+            // This ensures the beginning of speech isn't cut off
+            const silenceDurationSeconds = Math.max(0, totalSilenceDurationSeconds - bufferSeconds);
+            
+            // If there's not enough silence to trim (after buffer), don't trim to avoid audio issues
+            if (silenceDurationSeconds < 0.05) {
                 const blob = new Blob(chunks, { type: mimeType });
                 const url = URL.createObjectURL(blob);
                 return { blob, url };
