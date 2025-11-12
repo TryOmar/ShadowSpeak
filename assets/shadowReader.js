@@ -53,6 +53,7 @@ class ShadowReader {
         this.minRecordingDurationMs = 400; // Reduced from 700ms to 400ms for quicker stop
         this.silenceStartTime = null;
         this.hasDetectedSpeech = false; // Track if speech has been detected
+        this.voiceSearchFilter = ''; // Store voice search filter
         
         this.init();
         this.updatePlayRecordingsButton();
@@ -78,10 +79,54 @@ class ShadowReader {
     populateVoiceSelect() {
         const voiceSelect = document.getElementById("voiceSelect");
         const currentSelection = voiceSelect.value; // Preserve current selection
+        const searchFilter = this.voiceSearchFilter.toLowerCase().trim();
         voiceSelect.innerHTML = "";
 
+        // Get selected voice separately (always include it, even if it doesn't match filter)
+        let selectedVoice = null;
+        if (currentSelection && this.voices[parseInt(currentSelection)]) {
+            const selectedIndex = parseInt(currentSelection);
+            selectedVoice = { index: selectedIndex, voice: this.voices[selectedIndex] };
+        }
+
+        // Filter other voices based on search keyword
+        let allVoices = this.voices.map((voice, index) => ({ index, voice }));
+        
+        let filteredVoices = [];
+        if (searchFilter) {
+            // Filter voices, but always include selected voice if it exists
+            filteredVoices = allVoices.filter(({ index, voice }) => {
+                // Always include selected voice
+                if (selectedVoice && index === selectedVoice.index) {
+                    return true;
+                }
+                // Filter others by search keyword
+                return voice.name.toLowerCase().includes(searchFilter) ||
+                       voice.lang.toLowerCase().includes(searchFilter);
+            });
+        } else {
+            // No filter - show all voices
+            filteredVoices = allVoices;
+        }
+
+        // Separate selected voice from others
+        const otherVoices = filteredVoices.filter(({ index }) => 
+            !selectedVoice || index !== selectedVoice.index
+        );
+
+        // Group voices by language
         const grouped = {};
-        this.voices.forEach((voice, index) => {
+        const groupedSelected = {};
+        
+        // Process selected voice separately (always show it first)
+        if (selectedVoice && filteredVoices.some(v => v.index === selectedVoice.index)) {
+            const lang = selectedVoice.voice.lang.split('-')[0];
+            if (!groupedSelected[lang]) groupedSelected[lang] = [];
+            groupedSelected[lang].push(selectedVoice);
+        }
+        
+        // Process other voices
+        otherVoices.forEach(({ index, voice }) => {
             const lang = voice.lang.split('-')[0];
             if (!grouped[lang]) grouped[lang] = [];
             grouped[lang].push({ index, voice });
@@ -90,8 +135,26 @@ class ShadowReader {
         const priorityLangs = ['ar', 'en'];
         let defaultSelected = false;
         
+        // Add selected voice first in priority languages
         priorityLangs.forEach(lang => {
-            if (grouped[lang]) {
+            if (groupedSelected[lang] && groupedSelected[lang].length > 0) {
+                const optgroup = document.createElement("optgroup");
+                optgroup.label = lang === 'ar' ? 'Arabic' : 'English';
+                
+                groupedSelected[lang].forEach(({ index, voice }) => {
+                    const option = document.createElement("option");
+                    option.value = index;
+                    option.textContent = voice.name;
+                    option.selected = true;
+                    this.selectedVoiceIndex = index;
+                    defaultSelected = true;
+                    optgroup.appendChild(option);
+                });
+                
+                voiceSelect.appendChild(optgroup);
+            }
+            
+            if (grouped[lang] && grouped[lang].length > 0) {
                 const optgroup = document.createElement("optgroup");
                 optgroup.label = lang === 'ar' ? 'Arabic' : 'English';
                 
@@ -100,8 +163,8 @@ class ShadowReader {
                     option.value = index;
                     option.textContent = voice.name;
                     
-                    // Restore previous selection or select default
-                    if (currentSelection && currentSelection === index.toString()) {
+                    // Restore previous selection if not already selected
+                    if (!defaultSelected && currentSelection && currentSelection === index.toString()) {
                         option.selected = true;
                         this.selectedVoiceIndex = index;
                         defaultSelected = true;
@@ -119,6 +182,27 @@ class ShadowReader {
             }
         });
 
+        // Handle selected voice in other languages (show it first)
+        Object.keys(groupedSelected).sort().forEach(lang => {
+            if (!priorityLangs.includes(lang)) {
+                const optgroup = document.createElement("optgroup");
+                optgroup.label = lang.toUpperCase();
+                
+                groupedSelected[lang].forEach(({ index, voice }) => {
+                    const option = document.createElement("option");
+                    option.value = index;
+                    option.textContent = voice.name;
+                    option.selected = true;
+                    this.selectedVoiceIndex = index;
+                    defaultSelected = true;
+                    optgroup.appendChild(option);
+                });
+                
+                voiceSelect.appendChild(optgroup);
+            }
+        });
+
+        // Handle other voices in remaining languages
         Object.keys(grouped).sort().forEach(lang => {
             const optgroup = document.createElement("optgroup");
             optgroup.label = lang.toUpperCase();
@@ -129,7 +213,7 @@ class ShadowReader {
                 option.textContent = voice.name;
                 
                 // Restore previous selection
-                if (currentSelection && currentSelection === index.toString()) {
+                if (!defaultSelected && currentSelection && currentSelection === index.toString()) {
                     option.selected = true;
                     this.selectedVoiceIndex = index;
                     defaultSelected = true;
@@ -142,9 +226,13 @@ class ShadowReader {
         });
         
         // If no voice was selected, select the first available voice
-        if (!this.selectedVoiceIndex && this.voices.length > 0) {
-            this.selectedVoiceIndex = 0;
-            voiceSelect.selectedIndex = 0;
+        if (!defaultSelected && filteredVoices.length > 0) {
+            const firstVoice = filteredVoices[0];
+            this.selectedVoiceIndex = firstVoice.index;
+            voiceSelect.value = firstVoice.index;
+        } else if (defaultSelected && selectedVoice) {
+            // Ensure selected voice is maintained
+            voiceSelect.value = selectedVoice.index;
         }
     }
 
@@ -177,6 +265,15 @@ class ShadowReader {
         voiceSelect.addEventListener('change', (e) => {
             this.selectedVoiceIndex = e.target.value; // Store the selected voice
         });
+
+        // Handle voice search input
+        const voiceSearch = document.getElementById('voiceSearch');
+        if (voiceSearch) {
+            voiceSearch.addEventListener('input', (e) => {
+                this.voiceSearchFilter = e.target.value;
+                this.populateVoiceSelect();
+            });
+        }
 
     }
 
